@@ -6,18 +6,13 @@
  */
 
 #include <XBOXRECV.h>
+#include "ScrapController.h"
 
 // Satisfy the IDE, which needs to see the include statment in the ino too.
 #ifdef dobogusinclude
 #include <spi4teensy3.h>
 #include <SPI.h>
 #endif
-#include <Wire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
-
-#define OLED_RESET 4
-Adafruit_SSD1306 display(OLED_RESET);
 
 
 #define OUT1_1 40
@@ -25,22 +20,22 @@ Adafruit_SSD1306 display(OLED_RESET);
 #define PWM_1 44
 #define OUT2_1 41
 #define OUT2_2 43
-#define PWM_2 45
+#define PWM_2 46
 
-#define Enc1_A 18 //interrupt!
-#define Enc1_B 16 //normal digital!
+ScrapMotor motor1(OUT1_1,OUT1_2,PWM_1);
+ScrapMotor motor2(OUT2_1,OUT2_2,PWM_2);
+
+
+#define MAX_PWM 255
+#define MIN_PWM 80
 
 
 bool isMoving1 = false;
 bool wasMoving1 = isMoving1;
 bool isMoving2 = false;
+bool wasMoving2 = isMoving2;
 int deadzone = 12000;
 int checkzone = 5000;
-
-//represents encoder cound
-volatile int count1;
-volatile byte PinA1Last;
-volatile boolean Direction1;
 
 
 USB Usb;
@@ -56,69 +51,23 @@ void setup() {
     while (1); //halt
   }
   Serial.print(F("\r\nXbox Wireless Receiver Library Started"));
-  //encoder initialization
-  initEncoders();
+  motor1.setMotor(255);
+  motor2.setMotor(255);
+  delay(1000);
+  motor1.setMotor(-255);
+  motor2.setMotor(-255);
+  delay(1000);
+  motor1.stop();
+  motor2.stop();
+  Serial.println(-map(abs(-32768),deadzone,32768,MIN_PWM,MAX_PWM));
+              
   
-  //setup display
-  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
-  display.display();
-  delay(2000);
-
-  // Clear the buffer.
-  display.clearDisplay();
-  showText("Encoder test!");
-  
-}
-
-void initEncoders() {
-  pinMode(Enc1_A, INPUT);
-  pinMode(Enc1_B, INPUT);
-  count1 = 0;
-  attachInterrupt(digitalPinToInterrupt(Enc1_A),Encoder1Function, CHANGE); 
-}
-
-void Encoder1Function() {
-  if (digitalRead(Enc1_A) == digitalRead(Enc1_B)) {
-    count1++;
-  }
-  else {
-    count1--;
-  }
-}
-
-void wheelSpeed1() {
-  int Lstate = digitalRead(Enc1_A);
-  if((PinA1Last == LOW) && Lstate == HIGH)
-  {
-    int val = digitalRead(Enc1_B);
-    if (val == LOW && Direction1)
-    {
-      Direction1 = false;
-    }
-    else if (val == HIGH && !Direction1)
-    {
-      Direction1 = true;
-    }
-  }
-  PinA1Last = Lstate;
-  if (!Direction1) count1++;
-  else count1--;
-}
-
-
-void showText(String text) {
-  display.setTextSize(1);
-  display.setTextColor(WHITE);
-  display.setCursor(0,0);
-  display.println(text);
-  display.display();
-  display.clearDisplay();
 }
 
 void loop() {
   Usb.Task();
   if (Xbox.XboxReceiverConnected) {
-    for (uint8_t i = 0; i < 4; i++) {
+    for (uint8_t i = 0; i < 1; i++) {
       if (Xbox.Xbox360Connected[i]) {
         if (Xbox.getButtonPress(L2, i) || Xbox.getButtonPress(R2, i)) {
           Serial.print("L2: ");
@@ -127,8 +76,43 @@ void loop() {
           Serial.println(Xbox.getButtonPress(R2, i));
           Xbox.setRumbleOn(Xbox.getButtonPress(L2, i), Xbox.getButtonPress(R2, i), i);
         }
-
-        if (Xbox.getAnalogHat(LeftHatX, i) > 7500 || Xbox.getAnalogHat(LeftHatX, i) < -7500 || Xbox.getAnalogHat(LeftHatY, i) > checkzone || Xbox.getAnalogHat(LeftHatY, i) < -checkzone || Xbox.getAnalogHat(RightHatX, i) > checkzone || Xbox.getAnalogHat(RightHatX, i) < -checkzone || Xbox.getAnalogHat(RightHatY, i) > 7500 || Xbox.getAnalogHat(RightHatY, i) < -7500) {
+        
+        if (Xbox.getAnalogHat(RightHatX, i) > checkzone || Xbox.getAnalogHat(RightHatX, i) < -checkzone || Xbox.getAnalogHat(RightHatY, i) > checkzone || Xbox.getAnalogHat(RightHatY, i) < -checkzone) {
+          if (Xbox.getAnalogHat(RightHatX, i) > 7500 || Xbox.getAnalogHat(RightHatX, i) < -7500) {
+            //Serial.print(F("RightHatX: "));
+            //Serial.print(Xbox.getAnalogHat(RightHatX, i));
+            //Serial.print("\t");
+          }
+          //throttle HERE!
+          if (Xbox.getAnalogHat(RightHatY) > deadzone || Xbox.getAnalogHat(RightHatY) < -deadzone) {
+            //Serial.print(F("RightHatX: "));
+            //Serial.print(Xbox.getAnalogHat(RightHatX));
+            //Serial.print("\t");
+            if (Xbox.getAnalogHat(RightHatY) > deadzone) {
+              motor2.setMotor(map(abs(Xbox.getAnalogHat(RightHatY)),deadzone,32768,MIN_PWM,MAX_PWM));
+              isMoving2 = true;
+              if (wasMoving2 != isMoving2) {
+                wasMoving2 = isMoving2;
+              }
+            }
+            else if (Xbox.getAnalogHat(RightHatY) < -deadzone) {
+              motor2.setMotor(-map(abs(Xbox.getAnalogHat(RightHatY)),deadzone,32768,MIN_PWM,MAX_PWM));
+              isMoving2 = true;
+              if (wasMoving2 != isMoving2) {
+                wasMoving2 = isMoving2;
+              }
+            }
+          }
+          else {
+            motor2.stop();
+            isMoving2 = false;
+            if (wasMoving2 != isMoving2) {
+              wasMoving2 = isMoving2;
+            }
+          }
+        }
+  
+        if (Xbox.getAnalogHat(LeftHatX, i) > checkzone || Xbox.getAnalogHat(LeftHatX, i) < -checkzone || Xbox.getAnalogHat(LeftHatY, i) > checkzone || Xbox.getAnalogHat(LeftHatY, i) < -checkzone) {
           if (Xbox.getAnalogHat(LeftHatX, i) > 7500 || Xbox.getAnalogHat(LeftHatX, i) < -7500) {
             //Serial.print(F("LeftHatX: "));
             //Serial.print(Xbox.getAnalogHat(LeftHatX, i));
@@ -136,68 +120,38 @@ void loop() {
           }
           //throttle HERE!
           if (Xbox.getAnalogHat(LeftHatY) > deadzone || Xbox.getAnalogHat(LeftHatY) < -deadzone) {
-            //Serial.print(F("LeftHatX: "));
-            //Serial.print(Xbox.getAnalogHat(LeftHatX));
+            //Serial.print(F("LeftHatY: "));
+            Serial.println(Xbox.getAnalogHat(LeftHatY));
             //Serial.print("\t");
             if (Xbox.getAnalogHat(LeftHatY) > deadzone) {
-              digitalWrite(OUT1_1,HIGH);
-              digitalWrite(OUT1_2,LOW);
-              analogWrite(PWM_1,80+map(abs(Xbox.getAnalogHat(LeftHatY)),deadzone,32768,0,175));
+              motor1.setMotor(map(abs(Xbox.getAnalogHat(LeftHatY)),deadzone,32768,MIN_PWM,MAX_PWM));
+              //motor2.setMotor(map(abs(Xbox.getAnalogHat(LeftHatY)),deadzone,32768,MIN_PWM,MAX_PWM));
               isMoving1 = true;
               if (wasMoving1 != isMoving1) {
-                showText("movingF");
                 wasMoving1 = isMoving1;
               }
             }
             else if (Xbox.getAnalogHat(LeftHatY) < -deadzone) {
-              digitalWrite(OUT1_1,LOW);
-              digitalWrite(OUT1_2,HIGH);
-              analogWrite(PWM_1,80+map(abs(Xbox.getAnalogHat(LeftHatY)),deadzone,32768,0,175));
+              motor1.setMotor(-map(abs(Xbox.getAnalogHat(LeftHatY)),deadzone,32768,MIN_PWM,MAX_PWM));
+              Serial.println(-map(abs(Xbox.getAnalogHat(LeftHatY)),deadzone,32768,MIN_PWM,MAX_PWM));
+              //motor2.setMotor(-map(abs(Xbox.getAnalogHat(LeftHatY)),deadzone,32767,MIN_PWM,MAX_PWM));
               isMoving1 = true;
               if (wasMoving1 != isMoving1) {
-                showText("movingB");
                 wasMoving1 = isMoving1;
               }
             }
           }
           else {
-            //analogWrite(PWM_1,0);
-            digitalWrite(OUT1_1,LOW);
-            digitalWrite(OUT1_2,LOW);
+            motor1.stop();
+            //motor2.stop();
             isMoving1 = false;
             if (wasMoving1 != isMoving1) {
-                showText("off");
-                wasMoving1 = isMoving1;
-              }
-          }
-          //turning HERE!
-          if (Xbox.getAnalogHat(RightHatX, i) > deadzone || Xbox.getAnalogHat(RightHatX, i) < -deadzone) {
-            //Serial.print(F("RightHatX: "));
-            //Serial.print(Xbox.getAnalogHat(RightHatX, i));
-            //Serial.print("\t");if (Xbox.getAnalogHat(LeftHatY) > deadzone) {
-            if (Xbox.getAnalogHat(RightHatX) > deadzone) {
-              digitalWrite(OUT2_1,HIGH);
-              digitalWrite(OUT2_2,LOW);
-              analogWrite(PWM_2,80+map(abs(Xbox.getAnalogHat(RightHatX)),deadzone,32768,0,175));
-              isMoving2 = true;
-            }
-            else if (Xbox.getAnalogHat(RightHatX) < -deadzone) {
-              digitalWrite(OUT2_1,LOW);
-              digitalWrite(OUT2_2,HIGH);
-              analogWrite(PWM_2,80+map(abs(Xbox.getAnalogHat(RightHatX)),deadzone,32768,0,175));
-              isMoving2 = true;
+              wasMoving1 = isMoving1;
             }
           }
-          else {
-            analogWrite(PWM_2,0);
-            isMoving2 = false;
-          }
-          if (Xbox.getAnalogHat(RightHatY, i) > 7500 || Xbox.getAnalogHat(RightHatY, i) < -7500) {
-            //Serial.print(F("RightHatY: "));
-            //Serial.print(Xbox.getAnalogHat(RightHatY, i));
-          }
-          //Serial.println();
         }
+
+        
 
         if (Xbox.getButtonClick(UP, i)) {
           Xbox.setLedOn(LED1, i);
@@ -247,12 +201,11 @@ void loop() {
         if (Xbox.getButtonClick(A, i))
           Serial.println(F("A"));
         if (Xbox.getButtonClick(B, i))
-          //Serial.println(F("B"));
-          showText(String(count1));
+          Serial.println(F("B"));
         if (Xbox.getButtonClick(X, i))
           //Serial.println(F("X"));
-          analogWrite(PWM_1,0);
-          analogWrite(PWM_2,0);
+          motor1.stop();
+          motor2.stop();
           isMoving1 = false;
           isMoving2 = false;
         if (Xbox.getButtonClick(Y, i))
