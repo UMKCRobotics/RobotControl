@@ -16,40 +16,38 @@
 #endif
 
 #define CHECK_ZONE 5000
-const int deadzone = 12000;
-
-#define OUTLEFT_1 41
-#define OUTLEFT_2 43
-#define PWM_LEFT 45
-#define OUTRIGHT_1 40
-#define OUTRIGHT_2 42
-#define PWM_RIGHT 44
+const long deadzone = 12000;
 
 USB Usb;
 XBOXRECV Xbox(&Usb);
 
-ScrapMotor leftMotor(OUTLEFT_1,OUTLEFT_2,PWM_LEFT,-1);
-ScrapMotor rightMotor(OUTRIGHT_1,OUTRIGHT_2,PWM_RIGHT,-1);
-ControlWrapper controls = ControlWrapper();
+bool leftWasMoving = false;
+bool rightWasMoving = false;
 
 void setup() {
   Serial.begin(115200);
   Serial1.begin(115200);
-  #if !defined(__MIPSEL__)
-    while (!Serial); // Wait for serial port to connect - used on Leonardo, Teensy and other boards with built-in USB CDC serial connection
-  #endif
+/*#if !defined(__MIPSEL__)
+  while (!Serial); // Wait for serial port to connect - used on Leonardo, Teensy and other boards with built-in USB CDC serial connection
+#endif*/
   if (Usb.Init() == -1) {
     Serial.print(F("\r\nOSC did not start"));
     while (1); //halt
   }
   Serial.print(F("\r\nXbox Wireless Receiver Library Started"));
+  Serial1.write("1f9\r");
+  delayMicroseconds(1000);
+  Serial1.write("2f9\r");
+  delay(1000);
+  Serial1.write("1f0\r");
+  delayMicroseconds(1000);
+  Serial1.write("2f0\r");
 }
 
 void loop() {
-  doMovement();
   Usb.Task();
   if (Xbox.XboxReceiverConnected) {
-    for (uint8_t i = 0; i < 4; i++) {
+    for (uint8_t i = 0; i < 1; i++) {
       if (Xbox.Xbox360Connected[i]) {
         if (Xbox.getButtonPress(L2, i) || Xbox.getButtonPress(R2, i)) {
           Serial.print("L2: ");
@@ -58,30 +56,85 @@ void loop() {
           Serial.println(Xbox.getButtonPress(R2, i));
           //Xbox.setRumbleOn(Xbox.getButtonPress(L2, i), Xbox.getButtonPress(R2, i), i);
         }
-
-        // movement code
-
         long leftYVal = Xbox.getAnalogHat(LeftHatY, i);
         long rightYVal = Xbox.getAnalogHat(RightHatY, i);
-
         if (abs(leftYVal) > CHECK_ZONE || abs(rightYVal) > CHECK_ZONE) {
+          Serial.print(leftYVal);
+          Serial.print(" ");
+          Serial.println(rightYVal);
+          /*if (Xbox.getAnalogHat(LeftHatX, i) > 7500 || Xbox.getAnalogHat(LeftHatX, i) < -7500) {
+            Serial.print(F("LeftHatX: "));
+            Serial.print(Xbox.getAnalogHat(LeftHatX, i));
+            Serial.print("\t");
+          }*/
           if (abs(rightYVal) > deadzone) {
-            controls.setRawRightY(Xbox.getAnalogHat(RightHatY, i));
+            if (!rightWasMoving) {
+              delay(1);
+              if (rightYVal > deadzone) {
+                Serial1.write("2f9\r");
+                Serial.println("2f9\r");
+              }
+              else if (rightYVal < -deadzone) {
+                Serial1.write("2r9\r");
+                Serial.println("2r9\r");
+              }
+              rightWasMoving = true;
+            }
           }
           else {
-            controls.setRawRightY(0);
+            if (rightWasMoving) {
+              delay(1);
+              Serial1.write("2f0\r");
+              Serial.println("2f0\r");
+              rightWasMoving = false;
+            }
           }
           if (abs(leftYVal) > deadzone) {
-            controls.setRawLeftY(Xbox.getAnalogHat(LeftHatY, i));
+            if (!leftWasMoving) {
+              delay(1);
+              if (leftYVal > deadzone) {
+                Serial1.write("1f9\r");
+                Serial.println("1f9\r");
+              }
+              else if (leftYVal < -deadzone) {
+                Serial1.write("1r9\r");
+                Serial.println("1r9\r");
+              }
+              leftWasMoving = true;
+            }
+            //Serial.print(F("LeftHatY: "));
+            //Serial.print(Xbox.getAnalogHat(LeftHatY, i));
+            //Serial.print("\t");
           }
           else {
-            controls.setRawLeftY(0);
+            if (leftWasMoving) {
+              delay(1);
+              Serial1.write("1f0\r");
+              Serial.println("1f0\r");
+              leftWasMoving = false;
+            }
           }
+          /*if (Xbox.getAnalogHat(RightHatX, i) > 7500 || Xbox.getAnalogHat(RightHatX, i) < -7500) {
+            Serial.print(F("RightHatX: "));
+            Serial.print(Xbox.getAnalogHat(RightHatX, i));
+            Serial.print("\t");
+          }*/
           
+          //Serial.println();
         }
         else {
-          controls.setRawLeftY(0);
-          controls.setRawRightY(0);
+          if (leftWasMoving) {
+            delay(1);
+            Serial1.write("1f0\r");
+            Serial.println("1f0\r");
+            leftWasMoving = false;
+          }
+          if (rightWasMoving) {
+            delay(1);
+            Serial1.write("2f0\r");
+            Serial.println("2f0\r");
+            rightWasMoving = false;
+          }
         }
 
         if (Xbox.getButtonClick(UP, i)) {
@@ -133,21 +186,21 @@ void loop() {
           Serial.println(F("A"));
         if (Xbox.getButtonClick(B, i))
           Serial.println(F("B"));
-        // stop all movement
         if (Xbox.getButtonClick(X, i)) {
-          controls.setRawLeftY(0);
-          controls.setRawRightY(0);
+          //Serial.println(F("X"));
+          delay(1);
+          Serial1.write("1f0\r");
+          Serial.println("1f0\r");
+          delay(1);
+          Serial1.write("2f0\r");
+          Serial.println("2f0\r");
+          leftWasMoving = false;
+          rightWasMoving = false;
         }
-
+          
         if (Xbox.getButtonClick(Y, i))
           Serial.println(F("Y"));
       }
     }
   }
-}
-
-void doMovement() {
-  controls.updateMotorPWM();
-  leftMotor.setMotor(controls.getLeftPWM());
-  rightMotor.setMotor(controls.getRightPWM());
 }
